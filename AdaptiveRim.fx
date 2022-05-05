@@ -190,7 +190,7 @@ namespace AdaptiveRim
 	float GetDepth(in float2 tc)
 	{
 		float depth;
-		if (DepthMapFlip)
+		if (!DepthMapFlip)
 			tc.y = 1.0 - tc.y;
 	
 		depth = tex2Dlod(ReShade::DepthBuffer, float4(tc, 0, 0)).x;
@@ -203,8 +203,9 @@ namespace AdaptiveRim
 	
 	float3 NormalVector(in float4 pos : SV_Position, in float2 tc: TexCoord) : SV_Target
 	{
-		float Depth = GetDepth(tc) * .2;
-		
+		tc.y = 1 - tc.y;
+		float Depth = ReShade::GetLinearizedDepth(tc);
+			
 		// Rim becomes thinner farther away
 		float3 offset = pow(abs(1 - Depth), lerp(1, 8, DepthInfluence).x);
 		offset *= Offset / 1000; // Set to 100 for LSD shader ;)
