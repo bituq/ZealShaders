@@ -200,8 +200,7 @@ float GetDepth(in float2 tc)
 
 float3 NormalVector(in float4 pos : SV_Position, in float2 tc: TexCoord) : SV_Target
 {
-	tc.y = 1.0 - tc.y;
-	float Depth = ReShade::GetLinearizedDepth(tc);
+	float Depth = GetDepth(tc) * .2;
 	
 	// Rim becomes thinner farther away
 	float3 offset = pow(abs(1 - Depth), lerp(1, 8, DepthInfluence).x);
