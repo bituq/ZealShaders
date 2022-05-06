@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // My github: https://github.com/bituq
 
 // Thanks to Ehsan2077 for inspiring me to make this shader.
+// Thanks to BlueSkyDefender for his support.
 
 #include "ReShade.fxh"
 
