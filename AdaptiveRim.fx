@@ -35,11 +35,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Thanks to Ehsan2077 for inspiring me to make this shader.
 
 #include "ReShade.fxh"
-#include "Blending.fxh"
 
 namespace AdaptiveRim
 {
-
 	uniform float3 Color <
 		ui_category = "Rim";
 		ui_tooltip = "Adjust the rim's tint";
@@ -77,7 +75,7 @@ namespace AdaptiveRim
 	uniform uint Adaptive <
 		ui_category = "Environment";
 		ui_type = "combo";
-		ui_items = "Non-Adaptive\0Adaptive\0Hybrid\0";
+		ui_items = "Non-Adaptive\0Adaptive\0Hybrid\0Crazy Mode\0";
 		ui_tooltip = "Make the backlight adaptive to lighting in its environment";
 	> = 2;
 	
@@ -110,7 +108,7 @@ namespace AdaptiveRim
 	uniform uint Blend <
 		ui_type = "combo";
 		ui_label = "Blending Mode";
-		ui_items = "Color Dodge\0Overlay\0";
+		ui_items = "Color Dodge\0Add\0";
 		ui_tooltip = "Adjust the blending mode of the rim light. DEFAULT = Color Dodge";
 		ui_category = "Image";
 	> = 0;
@@ -134,7 +132,13 @@ namespace AdaptiveRim
 		ui_label = "Flip Depth Map";
 		ui_tooltip = "Enable if the depth map is flipped upside down.";
 		ui_category = "Debug Tools";
-	> = false;
+	> = true;
+	
+	#ifndef CrazyModeSpeed
+		#define CrazyModeSpeed 0.2 //[0 - 1.0] - What does this do? ;)
+	#endif
+	
+	uniform float2 pingpong < source = "pingpong"; min = 0; max = 1; step = CrazyModeSpeed; smoothing = 0; >;
 	
 	texture TexNormals { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; };
 	sampler sTexNormals { Texture = TexNormals; };
@@ -153,6 +157,15 @@ namespace AdaptiveRim
 	
 	texture TexHRimBlur { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; };
 	sampler sTexHRimBlur {Texture = TexHRimBlur;};
+
+	// https://www.chilliant.com/rgb2hsv.html
+	float3 HueToRgb(in float H)
+	{
+		float R = abs(H * 6 - 3) - 1;
+		float G = 2 - abs(H * 6 - 2);
+		float B = 2 - abs(H * 6 - 4);
+		return saturate(float3(R,G,B));
+	}
 	
 	float GetDepth(in float2 tc)
 	{
@@ -264,35 +277,63 @@ namespace AdaptiveRim
 		return saturate(color * Brightness);
 	}
 	
+	// Darken Blending
+	float3 Darken(float3 a, float3 b)
+	{
+		return min(a, b);
+	}
+	
+	// Color Dodge Blending
+	float3 ColorDodge(float3 a, float3 b)
+	{
+		if (b.r < 1 && b.g < 1 && b.b < 1)
+			return min(1.0, a / (1.0 - b));
+		else
+			return 1.0;
+	}
+	
+	// Add Blending
+	float3 Addition(float3 a, float3 b)
+	{
+		return min((a + b), 1);
+	}
+	
 	float3 Result(float4 pos : SV_Position, float2 tc : TexCoord) : SV_Target
 	{
 		float3 RimBlur = VBlur(pos, tc, sTexHRimBlur, RimBlurSize, 2);
 		float3 backBuffer = tex2D(ReShade::BackBuffer, tc).rgb;
 		float3 color = backBuffer;
 		
-		if (Adaptive >= 1)
+		if (Adaptive == 1 || Adaptive == 2) // Adaptive
 			color = tex2Dlod(sTexColorBlur, float4(tc, 0, 4)).rgb;
-		if (Adaptive == 2)
+		if (Adaptive == 2) // Hybrid
 			color = max(color, backBuffer / 3);
+		if (Adaptive == 3) // Crazy Mode
+			color *= HueToRgb(pingpong.x);
 			
-		float3 result = saturate(ComHeaders::Blending::Blend(1, color, RimBlur, 1));
+		float3 result = Darken(color, RimBlur);
 		float brightness = tex2Dlod(sTexLuma, float4(tc, 0, 5)).a;
 		brightness = smoothstep(1, -1, brightness);
 		brightness *= Strength;
 		result *= brightness * Strength;
 		
-		if (Debug == 1)
+		if (Debug == 1) // Rim
 			result = tex2D(sTexRim, tc).rgb;
-		else if (Debug == 2)
+		else if (Debug == 2) // Final Rim
 			return result;
-		else if (Debug == 3)
+		else if (Debug == 3) // Blur
 			result = tex2Dlod(sTexColorBlur, float4(tc, 0, 5)).rgb;
-		else if (Debug == 4)
+		else if (Debug == 4) // Normals
 			result = tex2D(sTexNormals, tc).rgb;
-		else if (Debug == 5)
+		else if (Debug == 5) // Luma
 			result = brightness;
 		else
-			result = ComHeaders::Blending::Blend(MapBlendingMode(Blend), tex2D(ReShade::BackBuffer, tc).rgb, result, 1);
+		{
+			if (Blend == 0) // Color Dodge
+				result = ColorDodge(tex2D(ReShade::BackBuffer, tc).rgb, result);
+			else if (Blend == 1) // Addition
+				result = Addition(tex2D(ReShade::BackBuffer, tc).rgb, result);
+		}
 		
 		return result;
 	}
