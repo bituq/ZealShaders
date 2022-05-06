@@ -113,13 +113,6 @@ namespace AdaptiveRim
 		ui_min = 0; ui_max = 1; ui_step = .01;
 	> = .2;
 	
-	uniform float Bias <
-		ui_label = "Darkness Bias";
-		ui_category = "Environment";
-		ui_type = "slider";
-		ui_min = 0; ui_max = 1; ui_step = .01;
-	> = .1;
-	
 	uniform uint Blend <
 		ui_type = "combo";
 		ui_label = "Blending Mode";
@@ -158,7 +151,7 @@ namespace AdaptiveRim
 	texture TexHColorBlur { Width = BUFFER_WIDTH / 4; Height = BUFFER_HEIGHT / 4; };
 	sampler sTexHColorBlur {Texture = TexHColorBlur;};
 	
-	texture TexColorBlur { Width = BUFFER_WIDTH / 4; Height = BUFFER_HEIGHT / 4; };
+	texture TexColorBlur { Width = BUFFER_WIDTH / 4; Height = BUFFER_HEIGHT / 4; MipLevels = 4; };
 	sampler sTexColorBlur { Texture = TexColorBlur;};
 	
 	texture TexRim { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT;};
@@ -260,13 +253,17 @@ namespace AdaptiveRim
 	// Horizontal color blur pass
 	float3 HColorBlur(float4 pos : SV_Position, float2 tc : TexCoord) : SV_Target
 	{
-		return HBlur(pos, tc, sTexLuma, max(1, ColorBlurSize), 8);
+		float3 large = HBlur(pos, tc, sTexLuma, max(1, ColorBlurSize), 10);
+		float3 small = HBlur(pos, tc, sTexLuma, max(1, ColorBlurSize / 8), 8);
+		return small + large;
 	}
 	
 	// Final color blur pass
 	float3 ColorBlur(float4 pos : SV_Position, float2 tc: TexCoord) : SV_Target
 	{
-		float3 color = VBlur(pos, tc, sTexHColorBlur, max(1, ColorBlurSize), 8);
+		float3 large = VBlur(pos, tc, sTexHColorBlur, max(1, ColorBlurSize / 4), 8);
+		float3 small = VBlur(pos, tc, sTexLuma, max(1, ColorBlurSize / 8), 8);
+		float3 color = small + large;
 		
 		float grayscale = dot(color, .333);
 		color = saturate(lerp(grayscale, color, lerp(0, 2, Saturation)));
@@ -281,12 +278,13 @@ namespace AdaptiveRim
 		float3 color = backBuffer;
 		
 		if (Adaptive)
-			color = tex2D(sTexColorBlur, tc).rgb;
+			color = tex2Dlod(sTexColorBlur, float4(tc, 0, 4)).rgb;
 		
 		float3 result = saturate(ComHeaders::Blending::Blend(1, color, RimBlur, 1));
 		float brightness = tex2Dlod(sTexLuma, float4(tc, 0, 5)).a;
-		brightness = smoothstep(1, 0, brightness);
-		result *= Strength * brightness;
+		brightness = smoothstep(1, -1, brightness);
+		brightness *= Strength;
+		result *= Strength;;
 		
 		
 		if (Debug == 1)
@@ -294,7 +292,7 @@ namespace AdaptiveRim
 		else if (Debug == 2)
 			return result;
 		else if (Debug == 3)
-			result = tex2D(sTexColorBlur, tc).rgb;
+			result = tex2Dlod(sTexColorBlur, float4(tc, 0, 5)).rgb;
 		else if (Debug == 4)
 			result = tex2D(sTexNormals, tc).rgb;
 		else if (Debug == 5)
