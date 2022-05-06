@@ -143,7 +143,7 @@ namespace AdaptiveRim
 	texture TexNormals { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; };
 	sampler sTexNormals { Texture = TexNormals; };
 	
-	texture TexLuma { Width = BUFFER_WIDTH / 2; Height = BUFFER_HEIGHT / 2; MipLevels = 11; };
+	texture TexLuma { Width = BUFFER_WIDTH / 2; Height = BUFFER_HEIGHT / 2; MipLevels = 5; };
 	sampler sTexLuma {Texture = TexLuma; SRGBTexture = true; };	
 	
 	texture TexHColorBlur { Width = BUFFER_WIDTH / 4; Height = BUFFER_HEIGHT / 4; };
