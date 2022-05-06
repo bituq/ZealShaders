@@ -110,7 +110,7 @@ namespace AdaptiveRim
 	uniform float Threshold <
 		ui_category = "Environment";
 		ui_type = "slider";
-		ui_min = .1; ui_max = 1; ui_step = .01;
+		ui_min = 0; ui_max = 1; ui_step = .01;
 	> = .2;
 	
 	uniform float Bias <
@@ -152,8 +152,8 @@ namespace AdaptiveRim
 	texture TexNormals { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; };
 	sampler sTexNormals { Texture = TexNormals; };
 	
-	texture TexBloom { Width = BUFFER_WIDTH / 2; Height = BUFFER_HEIGHT / 2; };
-	sampler sTexBloom {Texture = TexBloom; SRGBTexture = true;};	
+	texture TexBloom { Width = BUFFER_WIDTH / 2; Height = BUFFER_HEIGHT / 2; MipLevels = 11; };
+	sampler sTexBloom {Texture = TexBloom; SRGBTexture = true; };	
 	
 	texture TexHColorBlur { Width = BUFFER_WIDTH / 4; Height = BUFFER_HEIGHT / 4; };
 	sampler sTexHColorBlur {Texture = TexHColorBlur;};
@@ -166,26 +166,6 @@ namespace AdaptiveRim
 	
 	texture TexHRimBlur { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; };
 	sampler sTexHRimBlur {Texture = TexHRimBlur;};
-	
-	// Convert RGB to HSV
-	void RgbToHsv(inout float3 c)
-	{
-	    float4 k = float4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-	    float4 p = lerp(float4(c.bg, k.wz), float4(c.gb, k.xy), step(c.b, c.g));
-	    float4 q = lerp(float4(p.xyw, c.r), float4(c.r, p.yzx), step(p.x, c.r));
-	 
-	    float d = q.x - min(q.w, q.y);
-	    float e = 1.0e-10;
-	    c = float3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-	}
-	
-	// Convert HSV to RGB
-	void HsvToRgb(inout float3 c)
-	{
-	    float4 k = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-	    float3 p = abs(frac(c.xxx + k.xyz) * 6.0 - k.www);
-	    c = c.z * lerp(k.xxx, clamp(p - k.xxx, 0.0, 1.0), c.y);
-	}
 	
 	float GetDepth(in float2 tc)
 	{
@@ -233,14 +213,18 @@ namespace AdaptiveRim
 	}
 	
 	// Bloom mask
-	void Bloom(in float4 pos : SV_Position, in float2 tc : TexCoord, out float3 color : SV_Target)
+	void Bloom(in float4 pos : SV_Position, in float2 tc : TexCoord, out float4 color : SV_Target)
 	{
 		color = tex2D(ReShade::BackBuffer, tc).rgb;
 		
-		// Extract bright color
-		float brightness = dot(color, float3(.2126, .7152, .0722));
-		if (brightness <= Threshold)
-			color = 0;
+		// Isolate bright luma
+		float intensity = dot(color.rgb, float3(.2126, .7152, .0722));
+		color.rgb = pow(abs(color.rgb), 5);
+		color.rgb /= max(intensity, 0.0001);
+		color.a = max(0, intensity - Threshold);
+		color.rgb *= color.a;
+		
+		color = float4(color.rgb, intensity);
 	}
 	
 	// Backlight pixel shader
@@ -256,7 +240,7 @@ namespace AdaptiveRim
 		float3 color;
 		for (int i = -bs; i <= bs; i++)
 			color += (bs - abs(i))*tex2D( tex, tc + float2(( BUFFER_RCP_WIDTH * ( ( steps * i ) + 0.5)), 0)).rgb;	
-		return color/((bs*bs));	
+		return color/((bs*bs));
 	}
 	
 	// Vertical blur
@@ -284,10 +268,11 @@ namespace AdaptiveRim
 	float3 ColorBlur(float4 pos : SV_Position, float2 tc: TexCoord) : SV_Target
 	{
 		float3 color = VBlur(pos, tc, sTexHColorBlur, max(1, ColorBlurSize), 8);
-		RgbToHsv(color);
-		color.y = Saturation;
-		HsvToRgb(color);
-		return color * Brightness;
+		
+		float grayscale = dot(color, .333);
+		color = saturate(lerp(grayscale, color, lerp(0, 2, Saturation)));
+		
+		return saturate(color * Brightness);
 	}
 	
 	float3 Result(float4 pos : SV_Position, float2 tc : TexCoord) : SV_Target
@@ -300,8 +285,8 @@ namespace AdaptiveRim
 			color = tex2D(sTexColorBlur, tc).rgb;
 		
 		float3 result = saturate(ComHeaders::Blending::Blend(1, color, RimBlur, 1));
-		result *= saturate(3 - (backBuffer.r + backBuffer.g + backBuffer.b) * lerp(0, 20, Bias));
-		result *= Strength;
+		float brightness = 1 - tex2Dlod(sTexBloom, float4(tc, 0, 11)).a;
+		result *= Strength * smoothstep(0.125, 0.875, brightness);
 		
 		
 		if (Debug == 1)
