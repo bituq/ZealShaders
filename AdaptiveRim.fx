@@ -67,14 +67,6 @@ namespace AdaptiveRim
 		ui_min = 0; ui_max = 1; ui_step = .01;
 	> = .4;
 	
-	uniform float DepthInfluence <
-		ui_label = "Depth Influence";
-		ui_category = "Rim";
-		ui_tooltip = "Increasing this value will make the rim thinner further away";
-		ui_type = "slider";
-		ui_min = 0; ui_max = 1; ui_step = .1;
-	> = 0.3;
-	
 	uniform float RimBlurSize <
 		ui_label = "Blur Amount";
 		ui_category = "Rim";
@@ -82,10 +74,12 @@ namespace AdaptiveRim
 		ui_min = 1; ui_max = 10; ui_step = .1;
 	> = 3.6;
 	
-	uniform bool Adaptive <
+	uniform uint Adaptive <
 		ui_category = "Environment";
+		ui_type = "combo";
+		ui_items = "Non-Adaptive\0Adaptive\0Hybrid\0";
 		ui_tooltip = "Make the backlight adaptive to lighting in its environment";
-	> = true;
+	> = 2;
 	
 	uniform uint ColorBlurSize <
 		ui_label = "Light Distance";
@@ -171,16 +165,15 @@ namespace AdaptiveRim
 		if (DepthMapReversed)
 			depth = 1 - depth;
 		
-		return depth;
+		return 1 - depth * .3;
 	}
 	
 	float3 NormalVector(in float4 pos : SV_Position, in float2 tc: TexCoord) : SV_Target
 	{
-		float Depth = ReShade::GetLinearizedDepth(tc);
+		float Depth = 1 - GetDepth(tc);
 			
 		// Rim becomes thinner farther away
-		float3 offset = pow(abs(1 - Depth), lerp(1, 8, DepthInfluence).x);
-		offset *= Offset / 1000; // Set to 100 for LSD shader ;)
+		float3 offset = Offset / 1000; // Set to 100 for LSD shader ;)
 		offset += float3(BUFFER_PIXEL_SIZE.xy, 0);
 		
 		const float2 posCenter = tc.xy;
@@ -212,7 +205,7 @@ namespace AdaptiveRim
 		// Isolate bright luma
 		float intensity = dot(color.rgb, float3(.2126, .7152, .0722));
 		color.rgb /= max(intensity, 0.0001);
-		color.a = pow(10, ReShade::GetLinearizedDepth(tc));
+		color.a = GetDepth(tc);
 		color.a *= max(0, intensity - Threshold);
 		color.rgb *= color.a;
 		
@@ -277,15 +270,16 @@ namespace AdaptiveRim
 		float3 backBuffer = tex2D(ReShade::BackBuffer, tc).rgb;
 		float3 color = backBuffer;
 		
-		if (Adaptive)
+		if (Adaptive >= 1)
 			color = tex2Dlod(sTexColorBlur, float4(tc, 0, 4)).rgb;
-		
+		if (Adaptive == 2)
+			color = max(color, backBuffer / 3);
+			
 		float3 result = saturate(ComHeaders::Blending::Blend(1, color, RimBlur, 1));
 		float brightness = tex2Dlod(sTexLuma, float4(tc, 0, 5)).a;
 		brightness = smoothstep(1, -1, brightness);
 		brightness *= Strength;
-		result *= Strength;;
-		
+		result *= brightness * Strength;
 		
 		if (Debug == 1)
 			result = tex2D(sTexRim, tc).rgb;
