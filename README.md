@@ -11,7 +11,7 @@ A rim lighting shader which exaggerates the effect of exposure around objects. I
 |Non-Adaptive|The strength of the rim will be constant everywhere.|
 |Adaptive|The strength of the rim will depend on color emission in its environment.|
 |Hybrid|The strength of the rim remains constant, unless a color in its environment generates a brighter emission.|
-|Light Distance|Adust the distance at which the rim will be affected by light emission.|
+|Light Distance|Adjust the distance at which the rim will be affected by light emission.|
 |Threshold|Increasing this will exclude the rim from adapting darker emissions.|
 
 The shader also has parameters to compensate for reversed and flipped depth buffers.
