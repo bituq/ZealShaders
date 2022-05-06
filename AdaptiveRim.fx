@@ -131,7 +131,7 @@ namespace AdaptiveRim
 	uniform uint Debug <
 		ui_type = "combo";
 		ui_label = "Mode";
-		ui_items = "Off\0Rim\0Final Rim\0Blur\0Normals\0";
+		ui_items = "Off\0Rim\0Final Rim\0Blur\0Normals\0Luma\0";
 		ui_tooltip = "Adjust the debug mode. DEFAULT = Off";
 		ui_category = "Debug Tools";
 		ui_category_closed = true;
@@ -152,8 +152,8 @@ namespace AdaptiveRim
 	texture TexNormals { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; };
 	sampler sTexNormals { Texture = TexNormals; };
 	
-	texture TexBloom { Width = BUFFER_WIDTH / 2; Height = BUFFER_HEIGHT / 2; MipLevels = 11; };
-	sampler sTexBloom {Texture = TexBloom; SRGBTexture = true; };	
+	texture TexLuma { Width = BUFFER_WIDTH / 2; Height = BUFFER_HEIGHT / 2; MipLevels = 11; };
+	sampler sTexLuma {Texture = TexLuma; SRGBTexture = true; };	
 	
 	texture TexHColorBlur { Width = BUFFER_WIDTH / 4; Height = BUFFER_HEIGHT / 4; };
 	sampler sTexHColorBlur {Texture = TexHColorBlur;};
@@ -183,7 +183,6 @@ namespace AdaptiveRim
 	
 	float3 NormalVector(in float4 pos : SV_Position, in float2 tc: TexCoord) : SV_Target
 	{
-		tc.y = 1 - tc.y;
 		float Depth = ReShade::GetLinearizedDepth(tc);
 			
 		// Rim becomes thinner farther away
@@ -212,16 +211,16 @@ namespace AdaptiveRim
 			return 1; // Normal
 	}
 	
-	// Bloom mask
-	void Bloom(in float4 pos : SV_Position, in float2 tc : TexCoord, out float4 color : SV_Target)
+	// Luma pass
+	void Luma(in float4 pos : SV_Position, in float2 tc : TexCoord, out float4 color : SV_Target)
 	{
 		color = tex2D(ReShade::BackBuffer, tc).rgb;
 		
 		// Isolate bright luma
 		float intensity = dot(color.rgb, float3(.2126, .7152, .0722));
-		color.rgb = pow(abs(color.rgb), 5);
 		color.rgb /= max(intensity, 0.0001);
-		color.a = max(0, intensity - Threshold);
+		color.a = pow(10, ReShade::GetLinearizedDepth(tc));
+		color.a *= max(0, intensity - Threshold);
 		color.rgb *= color.a;
 		
 		color = float4(color.rgb, intensity);
@@ -261,7 +260,7 @@ namespace AdaptiveRim
 	// Horizontal color blur pass
 	float3 HColorBlur(float4 pos : SV_Position, float2 tc : TexCoord) : SV_Target
 	{
-		return HBlur(pos, tc, sTexBloom, max(1, ColorBlurSize), 8);
+		return HBlur(pos, tc, sTexLuma, max(1, ColorBlurSize), 8);
 	}
 	
 	// Final color blur pass
@@ -285,8 +284,9 @@ namespace AdaptiveRim
 			color = tex2D(sTexColorBlur, tc).rgb;
 		
 		float3 result = saturate(ComHeaders::Blending::Blend(1, color, RimBlur, 1));
-		float brightness = 1 - tex2Dlod(sTexBloom, float4(tc, 0, 11)).a;
-		result *= Strength * smoothstep(0.125, 0.875, brightness);
+		float brightness = tex2Dlod(sTexLuma, float4(tc, 0, 5)).a;
+		brightness = smoothstep(1, 0, brightness);
+		result *= Strength * brightness;
 		
 		
 		if (Debug == 1)
@@ -297,6 +297,8 @@ namespace AdaptiveRim
 			result = tex2D(sTexColorBlur, tc).rgb;
 		else if (Debug == 4)
 			result = tex2D(sTexNormals, tc).rgb;
+		else if (Debug == 5)
+			result = brightness;
 		else
 			result = ComHeaders::Blending::Blend(MapBlendingMode(Blend), tex2D(ReShade::BackBuffer, tc).rgb, result, 1);
 		
@@ -311,11 +313,11 @@ namespace AdaptiveRim
 			PixelShader = NormalVector;
 			RenderTarget = TexNormals;
 		}
-		pass Color
+		pass Luma
 		{
 			VertexShader = PostProcessVS;
-			PixelShader = Bloom;
-			RenderTarget = TexBloom;
+			PixelShader = Luma;
+			RenderTarget = TexLuma;
 		}
 		pass HColorBlur
 		{
