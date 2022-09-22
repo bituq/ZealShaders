@@ -49,7 +49,7 @@ namespace AdaptiveRim
 		ui_category = "Rim";
 		ui_tooltip = "Adjust the rim's strength";
 		ui_type = "slider";
-		ui_min = 0; ui_max = 3; ui_step = .1;
+		ui_min = 0; ui_max = 5; ui_step = .1;
 	> = 2;
 	
 	uniform float Offset <
