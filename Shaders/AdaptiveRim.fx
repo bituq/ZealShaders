@@ -144,6 +144,12 @@ namespace AdaptiveRim
 	texture TexNormals { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; };
 	sampler sTexNormals { Texture = TexNormals; };
 	
+	texture TexHNormalBlur { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; };
+	sampler sTexHNormalBlur { Texture = TexHNormalBlur; };
+	
+	texture TexNormalBlur { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; };
+	sampler sTexNormalBlur { Texture = TexNormalBlur; };
+	
 	texture TexLuma { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; MipLevels = 5; };
 	sampler sTexLuma {Texture = TexLuma; SRGBTexture = true; };	
 	
@@ -154,10 +160,7 @@ namespace AdaptiveRim
 	sampler sTexColorBlur { Texture = TexColorBlur;};
 	
 	texture TexRim { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT;};
-	sampler sTexRim {Texture = TexRim;};	
-	
-	texture TexHRimBlur { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; };
-	sampler sTexHRimBlur {Texture = TexHRimBlur;};
+	sampler sTexRim {Texture = TexRim;};
 
 	// https://www.chilliant.com/rgb2hsv.html
 	float3 HueToRgb(in float H)
@@ -229,8 +232,8 @@ namespace AdaptiveRim
 	// Backlight pixel shader
 	float3 Rimlight(in float4 pos : SV_Position, in float2 tc : TexCoord): SV_Target
 	{
-		float3 color = cross(tex2D(sTexNormals, tc).rgb, float3(0, lerp(1, 0, Detail), 1));
-		return color.r * Color ;
+		float3 color = cross(tex2D(sTexNormalBlur, tc).rgb, float3(0, lerp(1, 0, Detail), 1));
+		return color.r * Color;
 	}
 	
 	// Horizontal blur
@@ -249,12 +252,6 @@ namespace AdaptiveRim
 		for (int i = -bs; i <= bs; i++)
 			color += (bs - abs(i))*tex2D( tex, tc + float2(0,( BUFFER_RCP_HEIGHT * ( ( steps * i ) + 0.5 )))).rgb;
 		return color/(bs*bs);
-	}
-	
-	// Horizontal rim blur pass
-	float3 HRimBlur(float4 pos : SV_Position, float2 tc : TexCoord) : SV_Target
-	{
-		return HBlur(pos, tc, sTexRim, RimBlurSize, 2);
 	}
 	
 	// Horizontal color blur pass
@@ -276,6 +273,18 @@ namespace AdaptiveRim
 		color = saturate(lerp(grayscale, color, lerp(0, 2, Saturation)));
 		
 		return saturate(color * Brightness);
+	}
+	
+	// Horizontal normals blur pass
+	float3 HNormalBlur(float4 pos : SV_Position, float2 tc : TexCoord) : SV_Target
+	{
+		return HBlur(pos, tc, sTexNormals, RimBlurSize, 2);
+	}
+	
+	float3 NormalBlur(float4 pos : SV_Position, float2 tc : TexCoord) : SV_Target
+	{
+		float3 result = VBlur(pos, tc, sTexHNormalBlur, RimBlurSize, 2);
+		return result.g - result.b;
 	}
 	
 	// Darken Blending
@@ -301,7 +310,6 @@ namespace AdaptiveRim
 	
 	float3 Result(float4 pos : SV_Position, float2 tc : TexCoord) : SV_Target
 	{
-		float3 RimBlur = VBlur(pos, tc, sTexHRimBlur, RimBlurSize, 2);
 		float3 backBuffer = tex2D(ReShade::BackBuffer, tc).rgb;
 		float3 color = backBuffer;
 		
@@ -312,7 +320,7 @@ namespace AdaptiveRim
 		if (Adaptive == 3) // Crazy Mode
 			color *= HueToRgb(pingpong.x);
 			
-		float3 result = Darken(color, RimBlur);
+		float3 result = Darken(color, tex2D(sTexRim, tc).rgb);
 		float brightness = tex2Dlod(sTexLuma, float4(tc, 0, 5)).a;
 		brightness = smoothstep(1, -1, brightness);
 		brightness *= Strength;
@@ -323,9 +331,9 @@ namespace AdaptiveRim
 		else if (Debug == 2) // Final Rim
 			return result;
 		else if (Debug == 3) // Blur
-			result = tex2Dlod(sTexColorBlur, float4(tc, 0, 5)).rgb;
+			result = tex2Dlod(sTexColorBlur, float4(tc, 0, 2)).rgb;
 		else if (Debug == 4) // Normals
-			result = tex2D(sTexNormals, tc).rgb;
+			result = tex2D(sTexNormalBlur, tc).rgb;
 		else if (Debug == 5) // Luma
 			result = brightness;
 		else
@@ -371,11 +379,17 @@ namespace AdaptiveRim
 			PixelShader = Rimlight;
 			RenderTarget = TexRim;
 		}
-		pass HRimBlur
+		pass HNormalBlur
 		{
 			VertexShader = PostProcessVS;
-			PixelShader = HRimBlur;
-			RenderTarget = TexHRimBlur;
+			PixelShader = HNormalBlur;
+			RenderTarget = TexHNormalBlur;
+		}
+		pass NormalBlur
+		{
+			VertexShader = PostProcessVS;
+			PixelShader = NormalBlur;
+			RenderTarget = TexNormalBlur;
 		}
 		pass Result
 		{
